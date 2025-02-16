@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { DocumentPickerResponse } from 'react-native-document-picker';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -6,22 +7,13 @@ const api = axios.create({
   baseURL: API_URL,
 });
 
-interface UploadFile {
-  uri: string;
-  name: string;
-  type: string;
-}
 
-export const uploadPdf = async (file: UploadFile) => {
+export const uploadPdf = async (file:any) => {
   const formData = new FormData();
-  formData.append('file', {
-    uri: file.uri,
-    name: file.name,
-    type: 'application/pdf'
-  } as any);
+  formData.append('file', file);
 
   try {
-    const response = await api.post('/upload', formData, {
+    const response = await api.post('/upload_pdf', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },

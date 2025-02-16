@@ -136,6 +136,23 @@ export class StorageService {
     }
   }
 
+  static async getSalarySlipData(filter: string): Promise<PdfFile | null> {
+    try {
+      const jsonValue = await AsyncStorage.getItem(STORAGE_KEYS.PAYSLIPS);
+      if (jsonValue !== null) {
+        const payslips: PdfFile[] = JSON.parse(jsonValue);
+        const payslip = payslips.find(
+          (p) => p.id === filter || p.name === filter
+        );
+        return payslip ?? null;
+      }
+      return null;
+    } catch (e) {
+      console.error('Error retrieving payslips:', e);
+      return null;
+    }
+  }
+
   // Helper method to get monthly statistics
   static async getMonthlyStats(): Promise<{ month: string; total: number }[]> {
     try {

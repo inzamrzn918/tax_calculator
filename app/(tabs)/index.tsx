@@ -1,4 +1,4 @@
-import { View, FlatList, Text, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { View, FlatList, Text, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
 import { useState, useEffect, useCallback } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
 import { FontAwesome } from '@expo/vector-icons';
@@ -8,11 +8,14 @@ import { SalaryDetails, PdfFile } from '../../types';
 import { StorageService } from '../../services/storage';
 import { eventEmitter } from '../../services/eventEmitter';
 import { useFocusEffect } from '@react-navigation/native';
+import { uploadPdf } from '@/services/api';
+import CustomAlert from '@/components/AlertDialog';
 
 export default function Index() {
   const [pdfFiles, setPdfFiles] = useState<PdfFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<PdfFile | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [alertVisible, setAlertVisible] = useState(false);
 
   const loadPayslips = async () => {
     try {
@@ -36,6 +39,10 @@ export default function Index() {
     return `${timestamp}-${random}`;
   };
 
+  const handleLongPress = () =>{
+    setAlertVisible(true)
+  }
+
   const handleFileUpload = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -58,7 +65,7 @@ export default function Index() {
         
         setTimeout(async () => {
           try {
-            const processedData = await simulateProcessPDF(file);
+            const processedData = await startUpload(file);
             const updatedFile = { 
               ...newFile, 
               status: 'completed',
@@ -66,32 +73,34 @@ export default function Index() {
             };
             
             // Save to storage
-            await StorageService.savePayslip(updatedFile);
+          await StorageService.savePayslip(updatedFile);
             
             // Refresh the entire list from storage
             const updatedFiles = await StorageService.getAllPayslips();
             setPdfFiles(updatedFiles);
 
             // Notify profile page
-            eventEmitter.emit('payslipUpdated');
+          eventEmitter.emit('payslipUpdated');
 
-            Alert.alert('Success', 'Payslip processed successfully');
+          Alert.alert('Success', 'Payslip processed successfully');
 
           } catch (error) {
-            console.error('Error processing PDF:', error);
-            const failedFile = { ...newFile, status: 'error' };
-            
-            // Save failed state
-            await StorageService.savePayslip(failedFile);
-            
-            // Refresh the entire list from storage
-            const updatedFiles = await StorageService.getAllPayslips();
-            setPdfFiles(updatedFiles);
+          console.error('Error processing PDF:', error);
+          const failedFile = { ...newFile, status: 'error' };
+          
+          // Save failed state
+          await StorageService.savePayslip(failedFile);
+          
+          // Refresh the entire list from storage
+          const updatedFiles = await StorageService.getAllPayslips();
+          setPdfFiles(updatedFiles);
 
-            Alert.alert('Error', 'Failed to process payslip');
-          }
+          Alert.alert('Error', 'Failed to process payslip');
+        }
         }, 2000);
-      }
+    }else{
+      Alert.alert('Error', 'Failed to upload document');
+    }
     } catch (error) {
       console.error('Error picking document:', error);
       Alert.alert('Error', 'Failed to upload document');
@@ -99,12 +108,18 @@ export default function Index() {
   };
 
   // Simulate PDF processing - this would be replaced with actual API call
-  const simulateProcessPDF = async (file: DocumentPicker.DocumentAsset): Promise<SalaryDetails> => {
+  const startUpload = async (file: DocumentPicker.DocumentAsset): Promise<SalaryDetails> => {
     // Extract month and year from filename (assuming format: Salary_March_2024.pdf)
     const fileNameParts = file.name.replace('.pdf', '').split('_');
     const month = fileNameParts[1] || 'Unknown';
     const year = parseInt(fileNameParts[2]) || new Date().getFullYear();
 
+    if (Boolean(process.env.SIMULATE) === false ){
+      console.log(file);
+      
+      return await uploadPdf(file)
+    }
+    
     // Simulate API response with random variations
     const baseSalary = 45000 + Math.floor(Math.random() * 5000);
     const daPercentage = 0.2;
@@ -178,15 +193,39 @@ export default function Index() {
     }
   };
 
+  const deleteItem = (id:string) =>{
+    const deleteIt = async () => {
+      try {
+        await StorageService.deletePayslip(id);
+        setPdfFiles(prev => prev.filter(file => file.id !== id));  // Properly update the state
+        Alert.alert('Success', 'Payslip deleted successfully');
+      } catch (error) {
+        console.error('Error deleting payslip:', error);
+        Alert.alert('Error', 'Failed to delete payslip');
+      }
+    };
+    deleteIt();
+    
+  }
+
   const renderItem = ({ item }: { item: PdfFile }) => (
+    <View className="flex-col">
     <TouchableOpacity 
       className="flex-row p-4 bg-white rounded-xl mb-3 shadow-sm border border-gray-100"
       onPress={() => {
-        if (item.status === 'completed') {
-          setSelectedFile(item);
-          setModalVisible(true);
+        setSelectedFile(item);
+        switch(item.status){
+          case 'completed':
+            setModalVisible(true);
+            break;
+          case 'error':
+            setAlertVisible(true);
+            break
+          default:
+            console.log("Heelo");
         }
       }}
+      
     >
       <View className="w-12 h-12 bg-blue-50 rounded-lg items-center justify-center">
         <FontAwesome name="file-pdf-o" size={24} color="#3b82f6" />
@@ -230,6 +269,20 @@ export default function Index() {
         </View>
       )}
     </TouchableOpacity>
+    {alertVisible && item && (
+    <CustomAlert
+        visible={alertVisible}
+        title="Delete payslip?"
+        message="Are you sure you want to delete this file?"
+        onConfirm={() => {
+          deleteItem(item.id);
+          setAlertVisible(false);
+        }}
+        onCancel={() => setAlertVisible(false)}
+      
+      />
+    )}
+    </View>
   );
 
   const ListHeader = () => (
@@ -252,6 +305,7 @@ export default function Index() {
     } catch (error) {
       console.error('Error discarding PDF:', error);
     }
+    setModalVisible(false)
   };
 
   const handleSaveSalaryDetails = async (fileId: string, updatedDetails: SalaryDetails) => {
@@ -294,6 +348,7 @@ export default function Index() {
             keyExtractor={item => item.id}
             showsVerticalScrollIndicator={false}
             ListHeaderComponent={ListHeader}
+
           />
         </View>
       ) : (
@@ -319,3 +374,4 @@ export default function Index() {
     </View>
   );
 }
+
